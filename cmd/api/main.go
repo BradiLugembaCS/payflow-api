@@ -23,7 +23,7 @@ func main() {
 
 	log.Println("Connected to PostgreSQL")
 
-	srv := server.New()
+	srv := server.New(db)
 
 	addr := "127.0.0.1:8080"
 
