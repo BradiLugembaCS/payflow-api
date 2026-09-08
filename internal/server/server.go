@@ -43,6 +43,9 @@ func (s *Server) registerRoutes(authHandler *auth.Handler) {
 
 	// New registration endpoint.
 	s.router.HandleFunc("POST /register", authHandler.Register)
+
+	// Login endpoint.
+	s.router.HandleFunc("POST /login", authHandler.Login)
 }
 
 // handleHealth lets us quickly confirm that the API is running.

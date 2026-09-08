@@ -41,6 +41,13 @@ type registerRequest struct {
 	Password string `json:"password"`
 }
 
+// loginRequest represents the JSON we expect
+// when a user tries to log in.
+type loginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
 // Register handles POST /register requests.
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
@@ -128,6 +135,105 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"message": "user created successfully",
+		"user_id": userID,
+	})
+}
+
+// Login handles POST /login requests.
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	// Tell the client that our response will be JSON.
+	w.Header().Set("Content-Type", "application/json")
+
+	var req loginRequest
+
+	// Read the JSON request body.
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(
+			w,
+			`{"error":"invalid JSON"}`,
+			http.StatusBadRequest,
+		)
+		return
+	}
+
+	// Remove accidental spaces from the email.
+	req.Email = strings.TrimSpace(req.Email)
+
+	// Basic validation.
+	if req.Email == "" || req.Password == "" {
+		http.Error(
+			w,
+			`{"error":"email and password are required"}`,
+			http.StatusBadRequest,
+		)
+		return
+	}
+
+	// These variables will hold the user information
+	// we retrieve from PostgreSQL.
+	var userID int64
+	var passwordHash string
+
+	// Look up the user by email.
+	//
+	// We only need their ID and password hash for login.
+	err = h.db.QueryRow(
+		`
+		SELECT id, password_hash
+		FROM users
+		WHERE email = $1
+		`,
+		req.Email,
+	).Scan(&userID, &passwordHash)
+
+	// If no user exists with that email,
+	// return a generic login error.
+	//
+	// We don't say "email not found" because that can
+	// reveal whether an account exists.
+	if err == sql.ErrNoRows {
+		http.Error(
+			w,
+			`{"error":"invalid email or password"}`,
+			http.StatusUnauthorized,
+		)
+		return
+	}
+
+	// Handle unexpected database errors.
+	if err != nil {
+		http.Error(
+			w,
+			`{"error":"could not process login"}`,
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	// Compare the password the user entered
+	// with the bcrypt hash stored in the database.
+	err = bcrypt.CompareHashAndPassword(
+		[]byte(passwordHash),
+		[]byte(req.Password),
+	)
+
+	// If the password does not match, reject the login.
+	if err != nil {
+		http.Error(
+			w,
+			`{"error":"invalid email or password"}`,
+			http.StatusUnauthorized,
+		)
+		return
+	}
+
+	// If we reach this point,
+	// the email and password are correct.
+	w.WriteHeader(http.StatusOK)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message": "login successful",
 		"user_id": userID,
 	})
 }
