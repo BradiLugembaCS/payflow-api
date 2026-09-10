@@ -230,10 +230,26 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// If we reach this point,
 	// the email and password are correct.
+	// Create a JWT now that we know the user is legitimate.
+	token, err := GenerateToken(userID)
+
+	if err != nil {
+		http.Error(
+			w,
+			`{"error":"could not create authentication token"}`,
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	// Return the token to the client.
+	//
+	// The client can now use this token when calling
+	// protected endpoints.
 	w.WriteHeader(http.StatusOK)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"message": "login successful",
-		"user_id": userID,
+		"token":   token,
 	})
 }
