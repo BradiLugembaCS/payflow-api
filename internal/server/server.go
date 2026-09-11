@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/BradiLugembaCS/payflow-api/internal/accounts"
 	"github.com/BradiLugembaCS/payflow-api/internal/auth"
 )
 
@@ -29,14 +30,20 @@ func New(db *sql.DB) *Server {
 	// and give it access to PostgreSQL.
 	authHandler := auth.NewHandler(db)
 
+	// Create the account handler and give it database access.
+	accountHandler := accounts.NewHandler(db)
+
 	// Register all API routes.
-	s.registerRoutes(authHandler)
+	s.registerRoutes(authHandler, accountHandler)
 
 	return s
 }
 
 // registerRoutes connects URLs to handler functions.
-func (s *Server) registerRoutes(authHandler *auth.Handler) {
+func (s *Server) registerRoutes(
+	authHandler *auth.Handler,
+	accountHandler *accounts.Handler,
+) {
 
 	// Existing health-check endpoint.
 	s.router.HandleFunc("GET /health", s.handleHealth)
@@ -53,6 +60,18 @@ func (s *Server) registerRoutes(authHandler *auth.Handler) {
 	s.router.Handle(
 		"GET /me",
 		auth.Middleware(http.HandlerFunc(s.handleMe)),
+	)
+
+	// Create an account for the logged-in user.
+	s.router.Handle(
+		"POST /accounts",
+		auth.Middleware(http.HandlerFunc(accountHandler.CreateAccount)),
+	)
+
+	// View the logged-in user's account.
+	s.router.Handle(
+		"GET /accounts/me",
+		auth.Middleware(http.HandlerFunc(accountHandler.GetMyAccount)),
 	)
 }
 
