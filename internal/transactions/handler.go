@@ -31,6 +31,24 @@ type createTransactionRequest struct {
 func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	// Read the idempotency key from the request header.
+	//
+	// Every payment request should include one.
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+
+	// Reject requests without a key.
+	//
+	// This forces clients to provide protection against
+	// accidental duplicate payments.
+	if idempotencyKey == "" {
+		http.Error(
+			w,
+			`{"error":"Idempotency-Key header is required"}`,
+			http.StatusBadRequest,
+		)
+		return
+	}
+
 	// Identify the logged-in user from the JWT.
 	userID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
@@ -60,6 +78,53 @@ func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 			w,
 			`{"error":"amount must be greater than zero"}`,
 			http.StatusBadRequest,
+		)
+		return
+	}
+
+	// Check whether this idempotency key has already
+	// been used for a previous transaction.
+	var existing Transaction
+
+	err := h.db.QueryRowContext(
+		r.Context(),
+		`
+        SELECT
+            id,
+            sender_account_id,
+            receiver_account_id,
+            amount,
+            idempotency_key,
+            created_at
+        FROM transactions
+        WHERE idempotency_key = $1
+        `,
+		idempotencyKey,
+	).Scan(
+		&existing.ID,
+		&existing.SenderAccountID,
+		&existing.ReceiverAccountID,
+		&existing.Amount,
+		&existing.IdempotencyKey,
+		&existing.CreatedAt,
+	)
+
+	// If we find an existing transaction,
+	// return it instead of creating a new payment.
+	if err == nil {
+		w.WriteHeader(http.StatusOK)
+
+		json.NewEncoder(w).Encode(existing)
+		return
+	}
+
+	// sql.ErrNoRows means the key has never been used,
+	// so we can continue normally.
+	if err != sql.ErrNoRows {
+		http.Error(
+			w,
+			`{"error":"could not check idempotency key"}`,
+			http.StatusInternalServerError,
 		)
 		return
 	}
@@ -216,29 +281,39 @@ func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 
 	var transaction Transaction
 
-	// Record the transfer.
+	// Record the completed transfer in the transactions table.
+	//
+	// We also save the idempotency key so that if the same request is sent again, we can recognise it.
 	err = tx.QueryRowContext(
 		r.Context(),
 		`
-		INSERT INTO transactions (
-			sender_account_id,
-			receiver_account_id,
-			amount
-		)
-		VALUES ($1, $2, $3)
-		RETURNING id, sender_account_id, receiver_account_id, amount, created_at
-		`,
+        INSERT INTO transactions (
+            sender_account_id,
+            receiver_account_id,
+            amount,
+            idempotency_key
+        )
+        VALUES ($1, $2, $3, $4)
+        RETURNING
+            id,
+            sender_account_id,
+            receiver_account_id,
+            amount,
+            idempotency_key,
+            created_at
+        `,
 		senderAccountID,
 		receiverAccountID,
 		req.Amount,
+		idempotencyKey,
 	).Scan(
 		&transaction.ID,
 		&transaction.SenderAccountID,
 		&transaction.ReceiverAccountID,
 		&transaction.Amount,
+		&transaction.IdempotencyKey,
 		&transaction.CreatedAt,
 	)
-
 	if err != nil {
 		http.Error(
 			w,

@@ -13,5 +13,12 @@ type Transaction struct {
 	// Amount is stored in cents.
 	Amount int64 `json:"amount"`
 
+	// IdempotencyKey identifies the original request.
+	//
+	// If the same request is retried with the same key,
+	// we return the original transaction instead of
+	// creating another payment.
+	IdempotencyKey string `json:"idempotency_key"`
+
 	CreatedAt time.Time `json:"created_at"`
 }
