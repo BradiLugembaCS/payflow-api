@@ -7,6 +7,7 @@ import (
 
 	"github.com/BradiLugembaCS/payflow-api/internal/accounts"
 	"github.com/BradiLugembaCS/payflow-api/internal/auth"
+	"github.com/BradiLugembaCS/payflow-api/internal/transactions"
 )
 
 // Server represents our HTTP API.
@@ -33,8 +34,15 @@ func New(db *sql.DB) *Server {
 	// Create the account handler and give it database access.
 	accountHandler := accounts.NewHandler(db)
 
+	// Create the transaction handler and give it database access.
+	transactionHandler := transactions.NewHandler(db)
+
 	// Register all API routes.
-	s.registerRoutes(authHandler, accountHandler)
+	s.registerRoutes(
+		authHandler,
+		accountHandler,
+		transactionHandler,
+	)
 
 	return s
 }
@@ -43,6 +51,7 @@ func New(db *sql.DB) *Server {
 func (s *Server) registerRoutes(
 	authHandler *auth.Handler,
 	accountHandler *accounts.Handler,
+	transactionHandler *transactions.Handler,
 ) {
 
 	// Existing health-check endpoint.
@@ -72,6 +81,16 @@ func (s *Server) registerRoutes(
 	s.router.Handle(
 		"GET /accounts/me",
 		auth.Middleware(http.HandlerFunc(accountHandler.GetMyAccount)),
+	)
+
+	// Create a payment transaction.
+	//
+	// This route is protected, so the user must send a valid JWT.
+	s.router.Handle(
+		"POST /transactions",
+		auth.Middleware(
+			http.HandlerFunc(transactionHandler.CreateTransaction),
+		),
 	)
 }
 
